@@ -104,8 +104,11 @@ const upload = multer({
   }
 });
 
-// Handle vehicle detection events
-app.post('/hik', upload.single('licensePlatePicture.jpg'), (req, res) => {
+// Handle vehicle detection events for both root and /hik paths
+app.post(['/', '/hik'], upload.fields([
+  { name: 'licensePlatePicture.jpg', maxCount: 1 },
+  { name: 'vehiclePicture.jpg', maxCount: 1 }
+]), (req, res) => {
   try {
     // Extract query parameters
     const {
@@ -127,6 +130,9 @@ app.post('/hik', upload.single('licensePlatePicture.jpg'), (req, res) => {
       });
     }
 
+    // Get the uploaded file (from either field name)
+    const uploadedFile = req.files?.['licensePlatePicture.jpg']?.[0] || req.files?.['vehiclePicture.jpg']?.[0];
+
     // Create event object with all data
     const event = {
       channelID,
@@ -138,7 +144,7 @@ app.post('/hik', upload.single('licensePlatePicture.jpg'), (req, res) => {
       direction,
       confidenceLevel,
       macAddress,
-      imageFile: req.file ? req.file.filename : null
+      imageFile: uploadedFile ? uploadedFile.filename : null
     };
 
     // Save event data to JSON file
