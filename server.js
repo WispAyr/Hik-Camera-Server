@@ -8,8 +8,13 @@ const db = require('./database');
 // Initialize express app
 const app = express();
 
-// Add logging middleware
-app.use(morgan('combined'));
+// Add logging middleware only for POST requests
+app.use(morgan('combined', {
+  skip: function (req, res) { 
+    // Skip logging for all GET requests
+    return req.method === 'GET';
+  }
+}));
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static('uploads'));
@@ -41,6 +46,8 @@ app.get('/', async (req, res) => {
     <html>
     <head>
       <title>Vehicle Detection Events - NOC Dashboard</title>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <style>
         :root {
           --bg-primary: #1a1a1a;
@@ -59,12 +66,40 @@ app.get('/', async (req, res) => {
         }
         .header {
           display: flex;
+          flex-wrap: wrap;
           justify-content: space-between;
           align-items: center;
           padding: 10px 20px;
           background-color: var(--bg-secondary);
           border-radius: 8px;
           margin-bottom: 20px;
+        }
+        .filters {
+          width: 100%;
+          margin-top: 15px;
+        }
+        .filters form {
+          display: flex;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+        .filters input {
+          padding: 8px;
+          border: 1px solid var(--border);
+          border-radius: 4px;
+          background-color: var(--bg-primary);
+          color: var(--text-primary);
+        }
+        .filters button {
+          padding: 8px 16px;
+          background-color: var(--accent);
+          border: none;
+          border-radius: 4px;
+          color: white;
+          cursor: pointer;
+        }
+        .filters button:hover {
+          opacity: 0.9;
         }
         .clock {
           font-size: 1.5em;
@@ -154,14 +189,22 @@ app.get('/', async (req, res) => {
       <div class="header">
         <h1>Vehicle Detection Events</h1>
         <div id="clock" class="clock"></div>
+        <div class="filters">
+          <form id="filterForm" method="GET">
+            <input type="text" name="licensePlate" placeholder="License Plate" value="${req.query.licensePlate || ''}">
+            <input type="datetime-local" name="dateFrom" value="${req.query.dateFrom || ''}">
+            <input type="datetime-local" name="dateTo" value="${req.query.dateTo || ''}">
+            <button type="submit">Filter</button>
+          </form>
+        </div>
       </div>
       <div class="camera-grid">
       ${eventsData.map(event => `
         <div class="event">
           <div class="images-container">
-            ${event.images?.licensePlate ? `<img src="/uploads/${event.images.licensePlate}" alt="License Plate Image">` : ''}
-            ${event.images?.vehicle ? `<img src="/uploads/${event.images.vehicle}" alt="Vehicle Image">` : ''}
-            ${event.images?.detection ? `<img src="/uploads/${event.images.detection}" alt="Detection Image">` : ''}
+            ${event.licensePlateImage ? `<img src="/uploads/${event.licensePlateImage}" alt="License Plate Image">` : ''}
+            ${event.vehicleImage ? `<img src="/uploads/${event.vehicleImage}" alt="Vehicle Image">` : ''}
+            ${event.detectionImage ? `<img src="/uploads/${event.detectionImage}" alt="Detection Image">` : ''}
           </div>
           <div class="event-details">
             <p><strong>License Plate:</strong> ${event.licensePlate}</p>
