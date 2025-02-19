@@ -107,7 +107,8 @@ const upload = multer({
 // Handle vehicle detection events for both root and /hik paths
 app.post(['/', '/hik'], upload.fields([
   { name: 'licensePlatePicture.jpg', maxCount: 1 },
-  { name: 'vehiclePicture.jpg', maxCount: 1 }
+  { name: 'vehiclePicture.jpg', maxCount: 1 },
+  { name: 'detectionPicture.jpg', maxCount: 1 }
 ]), (req, res) => {
   try {
     // Extract query parameters
