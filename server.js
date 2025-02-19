@@ -3,6 +3,7 @@ const multer = require('multer');
 const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
+const db = require('./database');
 
 // Initialize express app
 const app = express();
@@ -14,22 +15,25 @@ app.use(morgan('combined'));
 app.use('/uploads', express.static('uploads'));
 
 // Serve HTML content
-app.get('/', (req, res) => {
-  const eventsData = [];
-  const uploadDir = path.join(__dirname, 'uploads');
-  
-  // Create uploads directory if it doesn't exist
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-  }
+app.get('/', async (req, res) => {
+  try {
+    const uploadDir = path.join(__dirname, 'uploads');
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
 
-  // Read all event files
-  const eventFiles = fs.readdirSync(uploadDir).filter(file => file.endsWith('.json'));
-  
-  for (const file of eventFiles) {
-    const eventData = JSON.parse(fs.readFileSync(path.join(uploadDir, file), 'utf8'));
-    eventsData.push(eventData);
-  }
+    // Get events from database with any filters
+    const filters = {
+      licensePlate: req.query.licensePlate,
+      dateFrom: req.query.dateFrom,
+      dateTo: req.query.dateTo,
+      limit: 100 // Limit the number of events shown
+    };
+
+    const [eventsData, stats] = await Promise.all([
+      db.getAllEvents(filters),
+      db.getEventStats()
+    ]);
 
   // Generate HTML content
   const html = `
@@ -172,11 +176,16 @@ app.get('/', (req, res) => {
           </div>
         </div>
       `).join('')}
+      </div>
     </body>
     </html>
   `;
   
   res.send(html);
+  } catch (error) {
+    console.error('Error rendering dashboard:', error);
+    res.status(500).send('Internal Server Error');
+  }
 });
 
 // Configure multer for handling file uploads
@@ -218,7 +227,7 @@ app.post(['/', '/hik'], upload.fields([
   { name: 'licensePlatePicture.jpg', maxCount: 1 },
   { name: 'vehiclePicture.jpg', maxCount: 1 },
   { name: 'detectionPicture.jpg', maxCount: 1 }
-]), (req, res) => {
+]), async (req, res) => {
   try {
     // Extract query parameters
     const {
@@ -270,13 +279,8 @@ app.post(['/', '/hik'], upload.fields([
       }
     };
 
-    // Save event data to JSON file
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const eventFileName = `${licensePlate}_${timestamp}.json`;
-    fs.writeFileSync(
-      path.join(__dirname, 'uploads', eventFileName),
-      JSON.stringify(event, null, 2)
-    );
+    // Save event to database
+    await db.insertEvent(event);
 
     // Log the event
     console.log('Received vehicle detection event:', event);
