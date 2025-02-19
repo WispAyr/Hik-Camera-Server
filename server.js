@@ -8,6 +8,9 @@ const db = require('./database');
 // Initialize express app
 const app = express();
 
+// Parse JSON bodies
+app.use(express.json());
+
 // Add logging middleware only for POST requests
 app.use(morgan('combined', {
   skip: function (req, res) { 
@@ -18,6 +21,106 @@ app.use(morgan('combined', {
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static('uploads'));
+
+// Site management endpoints
+app.get('/api/sites', async (req, res) => {
+  try {
+    const sites = await db.getSiteStats();
+    res.json(sites);
+  } catch (error) {
+    console.error('Error fetching sites:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Camera management endpoints
+app.get('/api/cameras', async (req, res) => {
+  try {
+    const siteId = req.query.siteId;
+    const cameras = await db.getCameras(siteId);
+    res.json(cameras);
+  } catch (error) {
+    console.error('Error fetching cameras:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/cameras', async (req, res) => {
+  try {
+    const { channelID, macAddress, name, description, site_id } = req.body;
+    if (!channelID || !site_id) {
+      return res.status(400).json({ error: 'Channel ID and site ID are required' });
+    }
+    const cameraId = await db.addCamera({ channelID, macAddress, name, description, site_id });
+    res.status(201).json({ id: cameraId, channelID, macAddress, name, description, site_id });
+  } catch (error) {
+    console.error('Error creating camera:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.put('/api/cameras/:id', async (req, res) => {
+  try {
+    const { name, description, site_id } = req.body;
+    const { id } = req.params;
+    await db.updateCamera(id, { name, description, site_id });
+    res.json({ id, name, description, site_id });
+  } catch (error) {
+    console.error('Error updating camera:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.delete('/api/cameras/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.deleteCamera(id);
+    res.status(204).send();
+  } catch (error) {
+    console.error('Error deleting camera:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.post('/api/sites', async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Site name is required' });
+    }
+    const siteId = await db.createOrGetSite(name, description);
+    res.status(201).json({ id: siteId, name, description });
+  } catch (error) {
+    console.error('Error creating site:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.put('/api/sites/:id', async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    const { id } = req.params;
+    if (!name) {
+      return res.status(400).json({ error: 'Site name is required' });
+    }
+    await db.updateSite(id, name, description);
+    res.json({ id, name, description });
+  } catch (error) {
+    console.error('Error updating site:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.delete('/api/sites/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.deleteSite(id);
+    res.status(204).send();
+  } catch (error) {
+    console.error('Error deleting site:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
 // Serve HTML content
 app.get('/', async (req, res) => {
@@ -32,12 +135,17 @@ app.get('/', async (req, res) => {
       licensePlate: req.query.licensePlate,
       dateFrom: req.query.dateFrom,
       dateTo: req.query.dateTo,
+      siteId: req.query.siteId,
       limit: 100 // Limit the number of events shown
     };
 
     const [eventsData, stats] = await Promise.all([
       db.getAllEvents(filters),
-      db.getEventStats()
+      db.getEventStats(),
+      db.getSiteStats()
+    ]).then(([events, basicStats, siteStats]) => [
+      events,
+      { ...basicStats, sites: siteStats }
     ]);
 
   // Generate HTML content
@@ -45,116 +153,130 @@ app.get('/', async (req, res) => {
     <!DOCTYPE html>
     <html>
     <head>
-      <title>Vehicle Detection Events - NOC Dashboard</title>
+      <title>Vehicle Detection Events & Site Management - NOC Dashboard</title>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <style>
         :root {
-          --bg-primary: #1a1a1a;
-          --bg-secondary: #2d2d2d;
+          --bg-primary: #000000;
+          --bg-secondary: #111111;
           --text-primary: #ffffff;
-          --text-secondary: #b3b3b3;
-          --accent: #007bff;
-          --border: #404040;
+          --text-secondary: #808080;
+          --accent: #005288;
+          --accent-hover: #006bb3;
+          --border: #1a1a1a;
+          --success: #00c853;
+          --danger: #ff3d00;
         }
         body {
-          font-family: 'Segoe UI', Arial, sans-serif;
+          font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
           margin: 0;
           padding: 20px;
           background-color: var(--bg-primary);
           color: var(--text-primary);
+          line-height: 1.6;
         }
         .header {
           display: flex;
           flex-wrap: wrap;
           justify-content: space-between;
           align-items: center;
-          padding: 10px 20px;
+          padding: 20px 30px;
           background-color: var(--bg-secondary);
-          border-radius: 8px;
-          margin-bottom: 20px;
+          border-radius: 12px;
+          margin-bottom: 30px;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
-        .filters {
-          width: 100%;
-          margin-top: 15px;
+        .site-management, .camera-management {
+          background-color: var(--bg-secondary);
+          padding: 30px;
+          border-radius: 12px;
+          margin-bottom: 30px;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
-        .filters form {
-          display: flex;
-          gap: 10px;
-          flex-wrap: wrap;
-        }
-        .filters input {
-          padding: 8px;
-          border: 1px solid var(--border);
-          border-radius: 4px;
+        .site-card, .camera-card {
           background-color: var(--bg-primary);
-          color: var(--text-primary);
+          padding: 20px;
+          border-radius: 12px;
+          border: 1px solid var(--border);
+          transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
-        .filters button {
-          padding: 8px 16px;
-          background-color: var(--accent);
+        .site-card:hover, .camera-card:hover {
+          transform: translateY(-5px);
+          box-shadow: 0 8px 15px rgba(0, 0, 0, 0.2);
+        }
+        .site-card h3, .camera-card h4 {
+          margin: 0 0 15px 0;
+          color: var(--accent);
+          font-size: 1.4em;
+          letter-spacing: 0.5px;
+        }
+        .site-list, .camera-list {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+          gap: 20px;
+        }
+        button {
+          padding: 10px 20px;
+          border-radius: 8px;
           border: none;
-          border-radius: 4px;
-          color: white;
+          font-weight: 500;
           cursor: pointer;
+          transition: all 0.3s ease;
+          text-transform: uppercase;
+          letter-spacing: 1px;
         }
-        .filters button:hover {
+        button.edit {
+          background-color: var(--accent);
+          color: white;
+        }
+        button.edit:hover {
+          background-color: var(--accent-hover);
+        }
+        button.delete {
+          background-color: var(--danger);
+          color: white;
+        }
+        button.delete:hover {
           opacity: 0.9;
         }
-        .clock {
-          font-size: 1.5em;
-          font-weight: bold;
-          color: var(--accent);
-        }
-        .camera-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
-          gap: 20px;
-          margin-top: 20px;
-        }
-        .camera-section {
-          background-color: var(--bg-secondary);
+        input, select {
+          padding: 12px;
+          border: 1px solid var(--border);
           border-radius: 8px;
-          padding: 15px;
+          background-color: var(--bg-primary);
+          color: var(--text-primary);
+          font-size: 14px;
         }
-        .camera-header {
-          border-bottom: 1px solid var(--border);
-          padding-bottom: 10px;
-          margin-bottom: 15px;
+        input:focus, select:focus {
+          outline: none;
+          border-color: var(--accent);
+        }
+        .clock {
+          font-size: 1.8em;
+          font-weight: 600;
           color: var(--accent);
+          text-shadow: 0 0 10px rgba(0, 82, 136, 0.3);
         }
         .event {
           background-color: var(--bg-primary);
           border: 1px solid var(--border);
-          margin: 10px 0;
-          padding: 15px;
-          border-radius: 8px;
-          transition: transform 0.2s;
+          margin: 15px 0;
+          padding: 20px;
+          border-radius: 12px;
+          transition: transform 0.3s ease;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
         .event:hover {
-          transform: translateY(-2px);
+          transform: translateY(-3px);
+          box-shadow: 0 8px 15px rgba(0, 0, 0, 0.2);
         }
         .event img {
           max-width: 300px;
           height: auto;
-          margin: 5px;
-          border-radius: 4px;
-        }
-        .event-details {
-          margin-top: 10px;
-        }
-        .event-details p {
-          margin: 5px 0;
-          color: var(--text-secondary);
-        }
-        .event-details strong {
-          color: var(--text-primary);
-        }
-        .images-container {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 10px;
-          justify-content: center;
+          margin: 10px;
+          border-radius: 8px;
+          box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
       </style>
       <script>
@@ -164,9 +286,188 @@ app.get('/', async (req, res) => {
           clock.textContent = now.toLocaleString();
         }
 
+        async function loadSites() {
+          try {
+            const response = await fetch('/api/sites');
+            const sites = await response.json();
+            const siteList = document.getElementById('siteList');
+            const cameraSiteId = document.getElementById('cameraSiteId');
+            
+            // Update site list
+            siteList.innerHTML = sites.map(site => 
+              '<div class="site-card" data-id="' + site.id + '">' +
+                '<h3>' + site.name + '</h3>' +
+                '<p>' + (site.description || 'No description') + '</p>' +
+                '<p>Events: ' + (site.eventCount || 0) + '</p>' +
+                '<p>Last Detection: ' + (site.lastDetection || 'N/A') + '</p>' +
+                '<div class="actions">' +
+                  '<button class="edit" onclick="editSite(' + site.id + ')">Edit</button>' +
+                  '<button class="delete" onclick="deleteSite(' + site.id + ')">Delete</button>' +
+                '</div>' +
+              '</div>'
+            ).join('');
+            
+            // Update site select in camera form
+            cameraSiteId.innerHTML = '<option value="">Select Site</option>' + 
+              sites.map(site => 
+                '<option value="' + site.id + '">' + site.name + '</option>'
+              ).join('');
+            
+            // Load cameras for all sites
+            loadCameras();
+          } catch (error) {
+            console.error('Error loading sites:', error);
+          }
+        }
+        
+        async function loadCameras() {
+          try {
+            const response = await fetch('/api/cameras');
+            const cameras = await response.json();
+            const cameraList = document.getElementById('cameraList');
+            
+            cameraList.innerHTML = cameras.map(camera => 
+              '<div class="camera-card" data-id="' + camera.id + '">' +
+                '<h4>' + (camera.name || camera.channelID) + '</h4>' +
+                '<p>Channel ID: ' + camera.channelID + '</p>' +
+                '<p>MAC Address: ' + (camera.macAddress || 'N/A') + '</p>' +
+                '<p>' + (camera.description || 'No description') + '</p>' +
+                '<div class="actions">' +
+                  '<button class="edit" onclick="editCamera(' + camera.id + ')">Edit</button>' +
+                  '<button class="delete" onclick="deleteCamera(' + camera.id + ')">Delete</button>' +
+                '</div>' +
+              '</div>'
+            ).join('');
+          } catch (error) {
+            console.error('Error loading cameras:', error);
+          }
+        }
+        
+        async function addCamera() {
+          const channelID = document.getElementById('cameraChannelID').value.trim();
+          const macAddress = document.getElementById('cameraMacAddress').value.trim();
+          const name = document.getElementById('cameraName').value.trim();
+          const description = document.getElementById('cameraDescription').value.trim();
+          const site_id = document.getElementById('cameraSiteId').value;
+          
+          if (!channelID || !site_id) {
+            return alert('Channel ID and Site are required');
+          }
+          
+          try {
+            await fetch('/api/cameras', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ channelID, macAddress, name, description, site_id })
+            });
+            
+            // Clear form
+            document.getElementById('cameraChannelID').value = '';
+            document.getElementById('cameraMacAddress').value = '';
+            document.getElementById('cameraName').value = '';
+            document.getElementById('cameraDescription').value = '';
+            document.getElementById('cameraSiteId').value = '';
+            
+            // Reload cameras
+            loadCameras();
+          } catch (error) {
+            console.error('Error creating camera:', error);
+            alert('Failed to create camera');
+          }
+        }
+        
+        async function editCamera(id) {
+          const name = prompt('Enter new camera name:');
+          if (!name) return;
+          const description = prompt('Enter new camera description:');
+          const site_id = prompt('Enter new site ID:');
+          
+          try {
+            await fetch('/api/cameras/' + id, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, description, site_id })
+            });
+            loadCameras();
+          } catch (error) {
+            console.error('Error updating camera:', error);
+            alert('Failed to update camera');
+          }
+        }
+        
+        async function deleteCamera(id) {
+          if (!confirm('Are you sure you want to delete this camera?')) return;
+          
+          try {
+            await fetch('/api/cameras/' + id, { method: 'DELETE' });
+            loadCameras();
+          } catch (error) {
+            console.error('Error deleting camera:', error);
+            alert('Failed to delete camera');
+          }
+        }
+
+        async function createSite() {
+          const nameInput = document.getElementById('siteName');
+          const descInput = document.getElementById('siteDescription');
+          const name = nameInput.value.trim();
+          const description = descInput.value.trim();
+
+          if (!name) return alert('Site name is required');
+
+          try {
+            await fetch('/api/sites', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, description })
+            });
+            nameInput.value = '';
+            descInput.value = '';
+            loadSites();
+          } catch (error) {
+            console.error('Error creating site:', error);
+            alert('Failed to create site');
+          }
+        }
+
+        async function editSite(id) {
+          const name = prompt('Enter new site name:');
+          if (!name) return;
+          const description = prompt('Enter new site description:');
+
+          try {
+            await fetch('/api/sites/' + id, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, description })
+            });
+            loadSites();
+          } catch (error) {
+            console.error('Error updating site:', error);
+            alert('Failed to update site');
+          }
+        }
+
+        async function deleteSite(id) {
+          if (!confirm('Are you sure you want to delete this site?')) return;
+
+          try {
+            await fetch('/api/sites/' + id, { method: 'DELETE' });
+            loadSites();
+          } catch (error) {
+            console.error('Error deleting site:', error);
+            alert('Failed to delete site');
+          }
+        }
+
+        // Add site loading to initialization
         function initializeRealtime() {
           // Update clock every second
           setInterval(updateClock, 1000);
+          
+          // Load sites immediately and refresh every 30 seconds
+          loadSites();
+          setInterval(loadSites, 30000);
 
           // Fetch new events every 5 seconds
           setInterval(() => {
@@ -187,38 +488,31 @@ app.get('/', async (req, res) => {
     </head>
     <body onload="initializeRealtime()">
       <div class="header">
-        <h1>Vehicle Detection Events</h1>
+        <h1>Vehicle Detection Events & Site Management</h1>
         <div id="clock" class="clock"></div>
-        <div class="filters">
-          <form id="filterForm" method="GET">
-            <input type="text" name="licensePlate" placeholder="License Plate" value="${req.query.licensePlate || ''}">
-            <input type="datetime-local" name="dateFrom" value="${req.query.dateFrom || ''}">
-            <input type="datetime-local" name="dateTo" value="${req.query.dateTo || ''}">
-            <button type="submit">Filter</button>
-          </form>
-        </div>
-      </div>
-      <div class="camera-grid">
-      ${eventsData.map(event => `
-        <div class="event">
-          <div class="images-container">
-            ${event.licensePlateImage ? `<img src="/uploads/${event.licensePlateImage}" alt="License Plate Image">` : ''}
-            ${event.vehicleImage ? `<img src="/uploads/${event.vehicleImage}" alt="Vehicle Image">` : ''}
-            ${event.detectionImage ? `<img src="/uploads/${event.detectionImage}" alt="Detection Image">` : ''}
+        <div class="site-management">
+          <h2>Site Management</h2>
+          <div class="site-form">
+            <input type="text" id="siteName" placeholder="Site Name" required>
+            <input type="text" id="siteDescription" placeholder="Site Description">
+            <button onclick="createSite()">Add Site</button>
           </div>
-          <div class="event-details">
-            <p><strong>License Plate:</strong> ${event.licensePlate}</p>
-            <p><strong>Date/Time:</strong> ${event.dateTime}</p>
-            <p><strong>Channel ID:</strong> ${event.channelID}</p>
-            <p><strong>Event Type:</strong> ${event.eventType}</p>
-            <p><strong>Country:</strong> ${event.country || 'N/A'}</p>
-            <p><strong>Lane:</strong> ${event.lane || 'N/A'}</p>
-            <p><strong>Direction:</strong> ${event.direction || 'N/A'}</p>
-            <p><strong>Confidence Level:</strong> ${event.confidenceLevel || 'N/A'}</p>
-            <p><strong>MAC Address:</strong> ${event.macAddress || 'N/A'}</p>
+          <div id="siteList" class="site-list"></div>
+          <div class="camera-management">
+            <h3>Camera Management</h3>
+            <div class="camera-form">
+              <input type="text" id="cameraChannelID" placeholder="Channel ID" required>
+              <input type="text" id="cameraMacAddress" placeholder="MAC Address">
+              <input type="text" id="cameraName" placeholder="Camera Name">
+              <input type="text" id="cameraDescription" placeholder="Camera Description">
+              <select id="cameraSiteId" required>
+                <option value="">Select Site</option>
+              </select>
+              <button onclick="addCamera()">Add Camera</button>
+            </div>
+            <div id="cameraList" class="camera-list"></div>
           </div>
         </div>
-      `).join('')}
       </div>
     </body>
     </html>
