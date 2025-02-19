@@ -11,8 +11,8 @@ const app = express();
 // Add logging middleware only for POST requests
 app.use(morgan('combined', {
   skip: function (req, res) { 
-    // Skip logging for all GET requests
-    return req.method === 'GET';
+    // Skip logging for all GET requests and successful responses
+    return req.method === 'GET' || res.statusCode < 400;
   }
 }));
 
