@@ -36,18 +36,122 @@ app.get('/', (req, res) => {
     <!DOCTYPE html>
     <html>
     <head>
-      <title>Vehicle Detection Events</title>
+      <title>Vehicle Detection Events - NOC Dashboard</title>
       <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .event { border: 1px solid #ddd; margin: 10px 0; padding: 15px; border-radius: 5px; }
-        .event img { max-width: 400px; height: auto; margin: 10px; }
-        .event-details { margin-top: 10px; }
-        .event-details p { margin: 5px 0; }
-        .images-container { display: flex; flex-wrap: wrap; gap: 10px; }
+        :root {
+          --bg-primary: #1a1a1a;
+          --bg-secondary: #2d2d2d;
+          --text-primary: #ffffff;
+          --text-secondary: #b3b3b3;
+          --accent: #007bff;
+          --border: #404040;
+        }
+        body {
+          font-family: 'Segoe UI', Arial, sans-serif;
+          margin: 0;
+          padding: 20px;
+          background-color: var(--bg-primary);
+          color: var(--text-primary);
+        }
+        .header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 10px 20px;
+          background-color: var(--bg-secondary);
+          border-radius: 8px;
+          margin-bottom: 20px;
+        }
+        .clock {
+          font-size: 1.5em;
+          font-weight: bold;
+          color: var(--accent);
+        }
+        .camera-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+          gap: 20px;
+          margin-top: 20px;
+        }
+        .camera-section {
+          background-color: var(--bg-secondary);
+          border-radius: 8px;
+          padding: 15px;
+        }
+        .camera-header {
+          border-bottom: 1px solid var(--border);
+          padding-bottom: 10px;
+          margin-bottom: 15px;
+          color: var(--accent);
+        }
+        .event {
+          background-color: var(--bg-primary);
+          border: 1px solid var(--border);
+          margin: 10px 0;
+          padding: 15px;
+          border-radius: 8px;
+          transition: transform 0.2s;
+        }
+        .event:hover {
+          transform: translateY(-2px);
+        }
+        .event img {
+          max-width: 300px;
+          height: auto;
+          margin: 5px;
+          border-radius: 4px;
+        }
+        .event-details {
+          margin-top: 10px;
+        }
+        .event-details p {
+          margin: 5px 0;
+          color: var(--text-secondary);
+        }
+        .event-details strong {
+          color: var(--text-primary);
+        }
+        .images-container {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          justify-content: center;
+        }
       </style>
+      <script>
+        function updateClock() {
+          const now = new Date();
+          const clock = document.getElementById('clock');
+          clock.textContent = now.toLocaleString();
+        }
+
+        function initializeRealtime() {
+          // Update clock every second
+          setInterval(updateClock, 1000);
+
+          // Fetch new events every 5 seconds
+          setInterval(() => {
+            fetch(window.location.href)
+              .then(response => response.text())
+              .then(html => {
+                const parser = new DOMParser();
+                const newDoc = parser.parseFromString(html, 'text/html');
+                const currentGrid = document.querySelector('.camera-grid');
+                const newGrid = newDoc.querySelector('.camera-grid');
+                if (newGrid) {
+                  currentGrid.innerHTML = newGrid.innerHTML;
+                }
+              });
+          }, 5000);
+        }
+      </script>
     </head>
-    <body>
-      <h1>Vehicle Detection Events</h1>
+    <body onload="initializeRealtime()">
+      <div class="header">
+        <h1>Vehicle Detection Events</h1>
+        <div id="clock" class="clock"></div>
+      </div>
+      <div class="camera-grid">
       ${eventsData.map(event => `
         <div class="event">
           <div class="images-container">
