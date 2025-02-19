@@ -40,16 +40,21 @@ app.get('/', (req, res) => {
       <style>
         body { font-family: Arial, sans-serif; margin: 20px; }
         .event { border: 1px solid #ddd; margin: 10px 0; padding: 15px; border-radius: 5px; }
-        .event img { max-width: 400px; height: auto; margin-top: 10px; }
+        .event img { max-width: 400px; height: auto; margin: 10px; }
         .event-details { margin-top: 10px; }
         .event-details p { margin: 5px 0; }
+        .images-container { display: flex; flex-wrap: wrap; gap: 10px; }
       </style>
     </head>
     <body>
       <h1>Vehicle Detection Events</h1>
       ${eventsData.map(event => `
         <div class="event">
-          ${event.imageFile ? `<img src="/uploads/${event.imageFile}" alt="Vehicle Image">` : ''}
+          <div class="images-container">
+            ${event.images?.licensePlate ? `<img src="/uploads/${event.images.licensePlate}" alt="License Plate Image">` : ''}
+            ${event.images?.vehicle ? `<img src="/uploads/${event.images.vehicle}" alt="Vehicle Image">` : ''}
+            ${event.images?.detection ? `<img src="/uploads/${event.images.detection}" alt="Detection Image">` : ''}
+          </div>
           <div class="event-details">
             <p><strong>License Plate:</strong> ${event.licensePlate}</p>
             <p><strong>Date/Time:</strong> ${event.dateTime}</p>
@@ -131,8 +136,15 @@ app.post(['/', '/hik'], upload.fields([
       });
     }
 
-    // Get the uploaded file (from either field name)
-    const uploadedFile = req.files?.['licensePlatePicture.jpg']?.[0] || req.files?.['vehiclePicture.jpg']?.[0];
+    // Get the uploaded files from all possible fields
+    const uploadedFiles = {
+      licensePlate: req.files?.['licensePlatePicture.jpg']?.[0],
+      vehicle: req.files?.['vehiclePicture.jpg']?.[0],
+      detection: req.files?.['detectionPicture.jpg']?.[0]
+    };
+
+    // Use the first available image file
+    const uploadedFile = uploadedFiles.licensePlate || uploadedFiles.vehicle || uploadedFiles.detection;
 
     // Create event object with all data
     const event = {
@@ -145,7 +157,13 @@ app.post(['/', '/hik'], upload.fields([
       direction,
       confidenceLevel,
       macAddress,
-      imageFile: uploadedFile ? uploadedFile.filename : null
+      imageFile: uploadedFile ? uploadedFile.filename : null,
+      // Store all image files if available
+      images: {
+        licensePlate: uploadedFiles.licensePlate?.filename || null,
+        vehicle: uploadedFiles.vehicle?.filename || null,
+        detection: uploadedFiles.detection?.filename || null
+      }
     };
 
     // Save event data to JSON file
